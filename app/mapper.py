@@ -1,11 +1,13 @@
 """Reads a portal form and maps each field to a vault key.
 
 Deterministic keyword rules go first. Fields they cannot place are offered to a local LLM
-(Ollama) if one is running. The LLM only ever sees field LABELS and vault KEY NAMES,
+(Ollama) if one is running. For this step the LLM only sees field LABELS and key names,
 never your values.
 """
-import json, os, re, urllib.request
+import json, re
 from html.parser import HTMLParser
+
+from . import llm
 
 # Ordered: specific before generic. First match wins.
 RULES = [
@@ -72,22 +74,38 @@ def parse(html: str) -> dict:
     return {"title": p.title.strip(), "meta": p.meta, "fields": fields}
 
 
-def _ask_llm(unmapped: list, keys: list) -> dict:
-    """Optional: ask a local Ollama model. Silently returns {} if none is running."""
-    if not unmapped or os.environ.get("VAULTPILOT_NO_LLM"):
+DESC = {"name": "the applicant's own full name", "dob": "the applicant's date of birth",
+        "gender": "the applicant's gender", "aadhaar": "the applicant's 12-digit Aadhaar (UID) number",
+        "pan": "the applicant's PAN card number", "mobile": "the applicant's mobile phone number",
+        "email": "the applicant's email address", "pincode": "the 6-digit postal PIN code",
+        "address": "the applicant's residential address"}
+RELATIVE = r"father|mother|guardian|spouse|parent|husband|wife|nominee"
+
+
+def _ask_llm(unmapped: list) -> dict:
+    """Ask the local model about fields the rules couldn't place.
+
+    It receives field LABELS and the list of KEY NAMES with descriptions. It never sees your values.
+    Answers about other people (father, mother, ...) are rejected here, outside the model."""
+    if not unmapped:
         return {}
-    prompt = ("Map each form field label to one of these keys, or null if none fits.\n"
-              f"Keys: {json.dumps(keys)}\nFields: {json.dumps([f['label'] for f in unmapped])}\n"
+    labels = [f["label"] for f in unmapped]
+    prompt = ("You map labels on an Indian government form to the applicant's own saved details.\n"
+              f"Available keys: {json.dumps(DESC)}\n"
+              f"Form labels: {json.dumps(labels)}\n"
+              "For each label give the single best key, or null if it is about someone else "
+              "(father, mother, guardian...), or does not match any key. Do not guess.\n"
               'Reply with JSON only: {"<label>": "<key or null>"}')
-    body = json.dumps({"model": os.environ.get("VAULTPILOT_MODEL", "qwen2.5:7b"),
-                       "prompt": prompt, "stream": False, "format": "json"}).encode()
-    try:
-        req = urllib.request.Request("http://localhost:11434/api/generate", body,
-                                     {"Content-Type": "application/json"})
-        out = json.loads(urllib.request.urlopen(req, timeout=20).read())["response"]
-        return {k: v for k, v in json.loads(out).items() if v in keys}
-    except Exception:
+    r = llm.generate_json(prompt)
+    if not isinstance(r, dict):
         return {}
+    out = {}
+    for label, key in r.items():
+        low = label.lower()
+        if label in labels and key in DESC and not re.search(RELATIVE, low) \
+                and not (key == "name" and re.search(NOT_NAME, low)):
+            out[label] = key
+    return out
 
 
 def map_fields(fields: list, vault_keys: list) -> list:
@@ -105,7 +123,7 @@ def map_fields(fields: list, vault_keys: list) -> list:
                     break
             f["status"] = "fill" if f["key"] else "unmapped"
         res.append(f)
-    guesses = _ask_llm([f for f in res if f["status"] == "unmapped"], vault_keys)
+    guesses = _ask_llm([f for f in res if f["status"] == "unmapped"])
     for f in res:
         if f["status"] == "unmapped" and f["label"] in guesses:
             f["key"], f["source"], f["status"] = guesses[f["label"]], "llm", "fill"

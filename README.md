@@ -39,7 +39,11 @@ VaultPilot is an agent that never sends your documents anywhere. Everything runs
 
 - **On-device OCR** with Tesseract (English, plus Hindi if the language pack is installed)
 - **Encrypted vault** (Fernet). The key lives in the OS keychain, with a locked key-file fallback. One-click wipe.
-- **Smart field mapping** with keyword rules, plus an optional local LLM (Ollama) for fields the rules cannot place
+- **Local AI, three jobs** (Ollama, default `qwen2.5:7b`; every feature still works with the AI off)
+  - **Field mapping:** the model places oddly worded labels the keyword rules miss, such as *"Identity number linked to your biometrics"* → Aadhaar
+  - **OCR rescue:** if OCR misses a name or date of birth, the model proposes it, and it is kept only if those exact words and digits appear in the scanned text
+  - **Plain-language explainer:** one click summarises what a form is for, who can apply, documents and deadlines
+  - Rules and the model work together, and the rules always have the last word (for example, "Father's Name" can never be mapped to *your* name)
 - **Per-field consent.** Only the fields you tick are entered, and the form gets nothing else.
 - **Pre-submit warnings in plain language**
   - Aadhaar checksum (Verhoeff) catches mistyped or misread digits
@@ -85,7 +89,7 @@ the rest of your vault is not exposed.
 | Backend | Python, FastAPI (bound to `127.0.0.1` only) |
 | OCR | Tesseract via `pytesseract` |
 | Vault | `cryptography` (Fernet) with `keyring` for the key |
-| Local AI (optional) | Ollama with a 7B model (default `qwen2.5:7b`) |
+| Local AI (optional) | Ollama with a 7B model (default `qwen2.5:7b`), kept warm in memory and called with temperature 0 |
 | Browser agent | Playwright (Chromium) |
 | Rule engine | Plain Python, deliberately separate from the model |
 | Interface | Single-page review panel (vanilla HTML/JS) |
@@ -114,8 +118,9 @@ Open **http://localhost:8000**.
 1. **Scan.** Upload `samples/sample_aadhaar.png`, check the extracted fields, click **Save to encrypted vault**. Repeat with `sample_pan.png`.
 2. **Add contact details.** The sample IDs have no phone, email or address. Type them in, set the type to `other`, and save.
 3. **Read the form.** Click **Read form** on the pre-filled demo portal. You will see a deadline warning and a table of which vault value goes into which field. The OTP box is marked as yours to fill.
-4. **Approve.** Click **Approve and fill in browser**. A browser opens with the form filled and highlighted. It never submits.
-5. **Catch a fake.** Paste `http://scholarships-gov.in.verify-now.com/refund` and click **Read form** to see the fake-portal warning.
+4. **See the AI work.** With Ollama running, the badge at the top reads *AI: qwen2.5:7b ready*, and two fields with unusual labels show an **AI** tag. Click **Explain this form** for a plain-language summary. Without Ollama those two fields are left for you to fill, and the panel says so.
+5. **Approve.** Click **Approve and fill in browser**. A browser opens with the form filled and highlighted. It never submits.
+6. **Catch a fake.** Paste `http://scholarships-gov.in.verify-now.com/refund` and click **Read form** to see the fake-portal warning.
 
 ### Optional: local AI
 
@@ -123,7 +128,13 @@ Open **http://localhost:8000**.
 ollama pull qwen2.5:7b
 ```
 
-VaultPilot detects Ollama automatically. Without it, keyword rules handle the field mapping.
+VaultPilot detects Ollama automatically and loads the model in the background at startup. Without it, keyword rules handle the field mapping.
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `VAULTPILOT_MODEL` | Ollama model to use (try `qwen2.5:3b` on low-RAM laptops) | `qwen2.5:7b` |
+| `VAULTPILOT_LLM_TIMEOUT` | Seconds to wait for the model | `90` |
+| `VAULTPILOT_NO_LLM` | Set to any value to force rules-only mode | off |
 
 ### Tests
 
@@ -131,11 +142,13 @@ VaultPilot detects Ollama automatically. Without it, keyword rules handle the fi
 pytest -q
 ```
 
-Nine tests cover validation rules, OCR field extraction, form mapping, fake-portal detection, and a check that the vault file contains no plaintext.
+Thirteen tests cover validation rules, OCR extraction, form mapping, fake-portal detection, vault encryption, and the AI guard rails (with the model stubbed, so no Ollama is needed to run them).
 
 ## Privacy and safety design
 
-- **No cloud calls.** OCR, vault, mapping and filling are all local. The server listens on localhost only.
+- **No cloud calls.** OCR, vault, AI, mapping and filling are all local. The server listens on localhost only.
+- **The AI sees as little as possible.** For field mapping it sees only form labels and key names, never your values. For OCR rescue it sees the text of the document you chose to scan, on your own machine. For the explainer it sees only the form page's text.
+- **The AI cannot cause harm on its own.** Its answers are checked by rules afterwards: mappings about relatives are rejected, OCR suggestions must be present in the scanned text, and the model has no say in warnings or in clicking Submit.
 - **Documents are not kept.** Images are read in memory and discarded. Only fields you confirm are stored.
 - **Encrypted at rest.** The vault file is unreadable without the key held in your OS keychain.
 - **Human in the loop.** Nothing is entered without your approval, and the agent never clicks Submit.

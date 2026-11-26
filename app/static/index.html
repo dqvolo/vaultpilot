@@ -21,7 +21,7 @@
  td input[type=text]{width:100%}.tag{font-size:12px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}
  small,.mut{color:var(--mut)} pre{white-space:pre-wrap;font-size:12px;color:var(--mut)}
 </style></head><body><main>
-<h1>VaultPilot <span class="badge">runs on this device</span></h1>
+<h1>VaultPilot <span class="badge">runs on this device</span><span class="badge" id="ai" style="background:var(--mut)">AI: checking...</span></h1>
 <p class="sub">Scan once, fill safely. No document or value is sent to any cloud service.</p>
 
 <section><h2>1. Scan a document</h2>
@@ -34,7 +34,8 @@
 </section>
 
 <section><h2>2. Fill a portal form</h2>
- <div class="row"><input type="url" id="url" value="http://localhost:8000/portal/scholarship"><button onclick="analyze()">Read form</button></div>
+ <div class="row"><input type="url" id="url" value="http://localhost:8000/portal/scholarship"><button onclick="analyze()">Read form</button><button class="sec" onclick="explain()">Explain this form</button></div>
+ <div id="explain" class="iss info" style="display:none;white-space:pre-wrap"></div>
  <small>Try a fake link such as <code>http://scholarships-gov.in.verify-now.com/refund</code> to see the warning (the page won't load, but the safety check still runs).</small>
  <div id="issues"></div><div id="plan"></div>
 </section>
@@ -58,7 +59,7 @@ async function scan(){
   const fd=new FormData(); fd.append("file",f);
   const r=await fetch("/api/scan",{method:"POST",body:fd}); const j=await r.json();
   if(!r.ok){$("scanmsg").textContent=j.detail;return}
-  $("scanmsg").textContent="Check every field below. OCR can misread digits."; $("doctype").value=j.doc_type; renderFields(j.fields);
+  $("scanmsg").textContent="Check every field below. OCR can misread digits."+(j.ai_filled.length?" AI filled: "+j.ai_filled.join(", ")+" (double-check it).":""); $("doctype").value=j.doc_type; renderFields(j.fields);
 }
 async function save(){
   const fields={}; KEYS.forEach(k=>{const v=$("f_"+k).value.trim(); if(v)fields[k]=v});
@@ -73,7 +74,7 @@ async function analyze(){
   analysis=j; $("issues").innerHTML=iss(j.issues);
   $("plan").innerHTML=`<h2 style="margin-top:14px">${esc(j.title)}</h2><p class="mut">The agent will enter only the ticked values. You can edit any value.</p><table>
    <tr><th></th><th>Form field</th><th>Value to enter</th><th></th></tr>`+j.fields.map((f,n)=>{
-    if(f.status==="fill")return `<tr><td><input type="checkbox" id="c${n}" checked></td><td>${esc(f.label)}</td><td><input type="text" id="v${n}" value="${esc(f.value)}"></td><td><span class="tag">${f.key} · ${f.source}</span></td></tr>`;
+    if(f.status==="fill")return `<tr><td><input type="checkbox" id="c${n}" checked></td><td>${esc(f.label)}</td><td><input type="text" id="v${n}" value="${esc(f.value)}"></td><td><span class="tag">${f.key} · ${f.source==="llm"?"AI":f.source}</span></td></tr>`;
     const why={handoff:"You enter this yourself (OTP/CAPTCHA are never automated)",missing:`Vault has no "${f.key}" yet`,unmapped:"No matching vault field"}[f.status];
     return `<tr><td></td><td>${esc(f.label)}</td><td class="mut">${why}</td><td><span class="tag">${f.status}</span></td></tr>`}).join("")+
    `</table><button onclick="approve()">Approve and fill in browser</button> <small>The agent never clicks Submit.</small>`;
@@ -88,5 +89,10 @@ async function approve(force=false){
 }
 async function loadVault(){const j=await(await fetch("/api/vault")).json(); $("vault").textContent=JSON.stringify(j,null,2)}
 async function wipe(){if(confirm("Delete the vault and its key?")){await fetch("/api/vault",{method:"DELETE"});loadVault()}}
-loadVault();
+async function aiStatus(){const j=await(await fetch("/api/ai/status")).json(),b=$("ai");
+  b.textContent=j.available?"AI: "+j.model+" ready":"AI off: rules only"; b.style.background=j.available?"var(--ok)":"var(--mut)"; b.title=j.reason||""}
+async function explain(){const box=$("explain"); box.style.display="block"; box.textContent="Reading the form with the local model...";
+  const r=await fetch("/api/explain",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:$("url").value})});
+  const j=await r.json(); box.textContent=r.ok?j.summary:j.detail}
+aiStatus(); loadVault();
 </script></main></body></html>

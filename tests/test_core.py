@@ -58,7 +58,8 @@ def test_mapper_on_mock_portal():
     by = {f["label"]: f for f in mapper.map_fields(page["fields"], keys)}
     assert by["Applicant's Full Name"]["key"] == "name"
     assert by["Father's Name"]["status"] == "unmapped"        # not the user's own name
-    assert by["UID Number"]["key"] == "aadhaar"
+    assert by["Identity number linked to your biometrics"]["status"] == "unmapped"  # only AI can place this
+    assert by["Registered cellular number"]["status"] == "unmapped"
     assert by["Permanent Account Number"]["key"] == "pan"
     assert by["OTP sent to your mobile"]["status"] == "handoff"  # never automated
     assert page["meta"]["required-docs"] == "aadhaar,pan"
@@ -80,3 +81,48 @@ def test_analyze_runs_url_check_even_if_page_offline():
     from app.main import app
     r = TestClient(app).post("/api/analyze", json={"url": "http://scholarships-gov.in.verify-now.com/refund"}).json()
     assert r["fields"] == [] and any(i["level"] == "error" for i in r["issues"])
+
+
+# ---------------- AI integration (model stubbed; no Ollama needed) ----------------
+def test_ai_maps_odd_labels_but_never_relatives(monkeypatch):
+    from app import llm
+    page = mapper.parse(PORTAL)
+    keys = ["name", "dob", "aadhaar", "mobile"]
+    # a sloppy model that also tries to map Father's Name to the user's name
+    monkeypatch.setattr(llm, "generate_json", lambda p: {
+        "Identity number linked to your biometrics": "aadhaar",
+        "Registered cellular number": "mobile",
+        "Father's Name": "name"})
+    by = {f["label"]: f for f in mapper.map_fields(page["fields"], keys)}
+    assert by["Identity number linked to your biometrics"]["key"] == "aadhaar"
+    assert by["Identity number linked to your biometrics"]["source"] == "llm"
+    assert by["Registered cellular number"]["key"] == "mobile"
+    assert by["Father's Name"]["status"] == "unmapped"          # guard held outside the model
+
+
+def test_ai_key_missing_from_vault_is_reported(monkeypatch):
+    from app import llm
+    monkeypatch.setattr(llm, "generate_json", lambda p: {"Registered cellular number": "mobile"})
+    by = {f["label"]: f for f in mapper.map_fields(mapper.parse(PORTAL)["fields"], ["name"])}
+    assert by["Registered cellular number"]["status"] == "missing"
+
+
+def test_ocr_ai_fill_is_grounded(monkeypatch):
+    from app import llm
+    monkeypatch.setattr(llm, "status", lambda: {"available": True, "model": "x", "reason": None})
+    text = "Government of India\nAsha Kumari\nBorn 14/08/2004"
+    monkeypatch.setattr(llm, "generate_json", lambda p: {"name": "Asha Kumari", "dob": "14/08/2004"})
+    f, used = ocr.ai_fill(text, {})
+    assert f == {"name": "Asha Kumari", "dob": "14/08/2004"} and used == ["name", "dob"]
+    # hallucinated values that are not in the OCR text are rejected
+    monkeypatch.setattr(llm, "generate_json", lambda p: {"name": "Ravi Shankar", "dob": "01/01/1990"})
+    assert ocr.ai_fill(text, {}) == ({}, [])
+    # regex results are never overridden
+    assert ocr.ai_fill(text, {"name": "Keep Me", "dob": "14/08/2004"}) == ({"name": "Keep Me", "dob": "14/08/2004"}, [])
+
+
+def test_everything_works_with_ai_off():
+    from app import llm
+    assert llm.status()["available"] is False                  # VAULTPILOT_NO_LLM is set above
+    assert llm.generate("x") is None and llm.generate_json("x") is None
+    assert ocr.ai_fill("text", {}) == ({}, [])

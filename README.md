@@ -1,13 +1,13 @@
 <div align="center">
 
-# 🛡️ VaultPilot
+# VaultPilot
 
 **Fill any government form once, safely. Your data stays on your device.**
 
 A local-first AI agent that reads your ID documents, keeps them in an encrypted vault on your own machine,
 and fills government-portal forms for you, with a human approval gate before anything is entered.
 
-`wHACKiest 2026` · Track: *Beyond the Browser: Reimagine How We Use the Web* · Team **Bit wizards** · Team ID `b435d1d1`
+`wHACKiest 2026` · Track: *Beyond the Browser: Reimagine How We Use the Web* · Team **Bit wizards**
 
 </div>
 
@@ -197,9 +197,9 @@ tests/
 | Name | Role |
 |---|---|
 | Shrihari Paga | Team lead |
-| *add name* | *add role* |
-| *add name* | *add role* |
-| *add name* | *add role* |
+| Garvaansh | member |
+| Ayansh Srivastava | member |
+| Shreshtha Kulkarni | member |
 
 JSS Science and Technology · wHACKiest 2026
 

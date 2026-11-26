@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VaultPilot</title>
+<style>
+ :root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e2e8f0;--ac:#1d4ed8;--ok:#166534;--warn:#b45309;--err:#b91c1c}
+ @media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111a2e;--ink:#e5e7eb;--mut:#94a3b8;--line:#25324d;--ac:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--err:#f87171}}
+ *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+ main{max-width:860px;margin:0 auto;padding:24px 16px 60px}
+ h1{font-size:22px;margin:0} .sub{color:var(--mut);margin:4px 0 20px}
+ .badge{display:inline-block;background:var(--ok);color:#fff;font-size:12px;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle}
+ section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+ h2{font-size:16px;margin:0 0 10px} input,select{padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:100%}
+ button{padding:8px 14px;border:0;border-radius:6px;background:var(--ac);color:#fff;cursor:pointer;font-size:14px}
+ button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)} button.danger{background:var(--err)}
+ .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:12px 0}
+ .grid label{font-size:12px;color:var(--mut);display:block}
+ .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row input[type=text],.row input[type=url]{flex:1;min-width:200px}
+ .iss{margin:8px 0;padding:8px 10px;border-radius:6px;border-left:4px solid;font-size:14px}
+ .iss.error{border-color:var(--err);color:var(--err)}.iss.warn{border-color:var(--warn);color:var(--warn)}.iss.info{border-color:var(--ac);color:var(--mut)}
+ table{width:100%;border-collapse:collapse;margin:10px 0}td,th{padding:6px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+ td input[type=text]{width:100%}.tag{font-size:12px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}
+ small,.mut{color:var(--mut)} pre{white-space:pre-wrap;font-size:12px;color:var(--mut)}
+</style></head><body><main>
+<h1>VaultPilot <span class="badge">runs on this device</span></h1>
+<p class="sub">Scan once, fill safely. No document or value is sent to any cloud service.</p>
+
+<section><h2>1. Scan a document</h2>
+ <div class="row"><input type="file" id="file" accept="image/*"><button onclick="scan()">Read with OCR</button></div>
+ <div id="scanmsg" class="mut"></div>
+ <div class="grid" id="fields"></div>
+ <div class="row"><select id="doctype" style="width:auto"><option>aadhaar</option><option>pan</option><option>other</option></select>
+ <button onclick="save()">Save to encrypted vault</button></div>
+ <div id="saveiss"></div>
+</section>
+
+<section><h2>2. Fill a portal form</h2>
+ <div class="row"><input type="url" id="url" value="http://localhost:8000/portal/scholarship"><button onclick="analyze()">Read form</button></div>
+ <small>Try a fake link such as <code>http://scholarships-gov.in.verify-now.com/refund</code> to see the warning (the page won't load, but the safety check still runs).</small>
+ <div id="issues"></div><div id="plan"></div>
+</section>
+
+<section><h2>3. Vault and audit log</h2>
+ <div class="row"><button class="sec" onclick="loadVault()">Refresh</button><button class="danger" onclick="wipe()">Wipe everything</button></div>
+ <pre id="vault"></pre>
+</section>
+
+<script>
+const KEYS=["name","dob","gender","aadhaar","pan","mobile","email","pincode","address"];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const iss=a=>a.map(i=>`<div class="iss ${i.level}">${esc(i.msg)}</div>`).join("");
+function renderFields(f={}){$("fields").innerHTML=KEYS.map(k=>`<div><label>${k}</label><input type="text" id="f_${k}" value="${esc(f[k]||"")}"></div>`).join("")}
+renderFields();
+
+async function scan(){
+  const f=$("file").files[0]; if(!f){$("scanmsg").textContent="Choose an image first.";return}
+  $("scanmsg").textContent="Reading on this device...";
+  const fd=new FormData(); fd.append("file",f);
+  const r=await fetch("/api/scan",{method:"POST",body:fd}); const j=await r.json();
+  if(!r.ok){$("scanmsg").textContent=j.detail;return}
+  $("scanmsg").textContent="Check every field below. OCR can misread digits."; $("doctype").value=j.doc_type; renderFields(j.fields);
+}
+async function save(){
+  const fields={}; KEYS.forEach(k=>{const v=$("f_"+k).value.trim(); if(v)fields[k]=v});
+  const r=await fetch("/api/vault",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({doc_type:$("doctype").value,fields})});
+  const j=await r.json(); $("saveiss").innerHTML=iss(j.issues)||'<div class="iss info">Saved. No problems found.</div>'; loadVault();
+}
+let analysis=null;
+async function analyze(){
+  const url=$("url").value; $("plan").innerHTML=""; 
+  const r=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url})});
+  const j=await r.json();
+  analysis=j; $("issues").innerHTML=iss(j.issues);
+  $("plan").innerHTML=`<h2 style="margin-top:14px">${esc(j.title)}</h2><p class="mut">The agent will enter only the ticked values. You can edit any value.</p><table>
+   <tr><th></th><th>Form field</th><th>Value to enter</th><th></th></tr>`+j.fields.map((f,n)=>{
+    if(f.status==="fill")return `<tr><td><input type="checkbox" id="c${n}" checked></td><td>${esc(f.label)}</td><td><input type="text" id="v${n}" value="${esc(f.value)}"></td><td><span class="tag">${f.key} · ${f.source}</span></td></tr>`;
+    const why={handoff:"You enter this yourself (OTP/CAPTCHA are never automated)",missing:`Vault has no "${f.key}" yet`,unmapped:"No matching vault field"}[f.status];
+    return `<tr><td></td><td>${esc(f.label)}</td><td class="mut">${why}</td><td><span class="tag">${f.status}</span></td></tr>`}).join("")+
+   `</table><button onclick="approve()">Approve and fill in browser</button> <small>The agent never clicks Submit.</small>`;
+}
+async function approve(force=false){
+  const items=analysis.fields.map((f,n)=>({f,n})).filter(({f,n})=>f.status==="fill"&&$("c"+n).checked)
+    .map(({f,n})=>({selector:f.selector,tag:f.tag,key:f.key,value:$("v"+n).value}));
+  const r=await fetch("/api/fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:$("url").value,items,force})});
+  const j=await r.json();
+  if(r.status===409){ if(confirm(j.detail+"\n\nContinue anyway?")) return approve(true); return}
+  $("issues").insertAdjacentHTML("afterbegin",`<div class="iss info">Filled ${j.filled} field(s). ${esc(j.note)}</div>`); loadVault();
+}
+async function loadVault(){const j=await(await fetch("/api/vault")).json(); $("vault").textContent=JSON.stringify(j,null,2)}
+async function wipe(){if(confirm("Delete the vault and its key?")){await fetch("/api/vault",{method:"DELETE"});loadVault()}}
+loadVault();
+</script></main></body></html>

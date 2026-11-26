@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>State Merit Scholarship 2026-27 (DEMO PORTAL)</title>
+<meta name="deadline" content="{{DEADLINE}}">
+<meta name="required-docs" content="aadhaar,pan">
+<style>
+ body{font:15px system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#1f2937}
+ h1{font-size:20px;border-bottom:3px solid #f59e0b;padding-bottom:8px}
+ .demo{background:#fef3c7;padding:8px 12px;border-radius:6px;font-size:13px}
+ label{display:block;margin-top:14px;font-weight:600} input,select,textarea{width:100%;padding:8px;margin-top:4px;box-sizing:border-box}
+ button{margin-top:20px;padding:10px 22px;background:#1d4ed8;color:#fff;border:0;border-radius:6px;font-size:15px;cursor:pointer}
+</style></head><body>
+<h1>State Merit Scholarship 2026-27</h1>
+<p class="demo">Demo portal for the VaultPilot prototype. Nothing here is submitted anywhere.</p>
+<form onsubmit="event.preventDefault();alert('Submitted (demo). In a real portal this is where you would click.')">
+ <label for="applicant_name">Applicant's Full Name</label><input id="applicant_name" name="applicant_name">
+ <label for="father_name">Father's Name</label><input id="father_name" name="father_name">
+ <label for="dob">Date of Birth (DD/MM/YYYY)</label><input id="dob" name="dob">
+ <label for="gender">Gender</label>
+ <select id="gender" name="gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Transgender</option></select>
+ <label for="uid_no">UID Number</label><input id="uid_no" name="uid_no">
+ <label for="pan_no">Permanent Account Number</label><input id="pan_no" name="pan_no">
+ <label for="ph">Mobile</label><input id="ph" name="ph">
+ <label for="mail">E-mail</label><input id="mail" name="mail">
+ <label for="addr">Residential Address</label><textarea id="addr" name="addr"></textarea>
+ <label for="pin">PIN Code</label><input id="pin" name="pin">
+ <label for="otp">OTP sent to your mobile</label><input id="otp" name="otp">
+ <button>Submit application</button>
+</form></body></html>
